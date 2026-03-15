@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Premium Ludo 3D Online - By SakiL</title>
+    <!-- PeerJS for Online Multiplayer Room Creation -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --yellow: #FFD700; --yellow-glow: rgba(255, 215, 0, 0.6);
+            --blue: #00e5ff; --blue-glow: rgba(0, 229, 255, 0.6);
+            --red: #ff2a2a; --red-glow: rgba(255, 42, 42, 0.6);
+            --green: #00ff66; --green-glow: rgba(0, 255, 102, 0.6);
+            --bg-color: #0f172a; --board-bg: rgba(30, 41, 59, 0.8);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Poppins', 'Segoe UI', sans-serif; }
+
+        body {
+            background: radial-gradient(circle at center, #1e293b 0%, #020617 100%);
+            color: white; display: flex; flex-direction: column; align-items: center;
+            min-height: 100vh; overflow: hidden; touch-action: manipulation;
+        }
+
+        /* --- Animations --- */
+        @keyframes pulseGlow { 0% { box-shadow: 0 0 10px var(--glow-color); } 50% { box-shadow: 0 0 25px var(--glow-color); } 100% { box-shadow: 0 0 10px var(--glow-color); } }
+        @keyframes floatUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes spin3D { 0% { transform: translateZ(50px) rotateX(0) rotateY(0); } 100% { transform: translateZ(50px) rotateX(720deg) rotateY(720deg); } }
+
+        /* --- UI Overlay Elements --- */
+        .credits-footer {
+            position: fixed; bottom: 10px; text-align: center; width: 100%;
+            font-size: 12px; color: #94a3b8; z-index: 100;
+        }
+        .credits-footer a { color: #00e5ff; text-decoration: none; font-weight: bold; }
+        .credits-footer a:hover { text-shadow: 0 0 8px #00e5ff; }
+
+        /* --- Start Menu (Glassmorphism) --- */
+        #menu-modal {
+            position: fixed; inset: 0; z-index: 2000;
+            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(10px);
+            display: flex; justify-content: center; align-items: center; flex-direction: column;
+        }
+
+        .menu-box {
+            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px; width: 320px; padding: 30px; text-align: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5); animation: floatUp 0.5s ease-out;
+        }
+
+        .menu-box h1 {
+            font-size: 36px; font-weight: 900; margin-bottom: 5px;
+            background: linear-gradient(90deg, #00e5ff, #00ff66, #FFD700, #ff2a2a);
+            -webkit-background-clip: text; color: transparent; text-transform: uppercase;
+        }
+        
+        .menu-subtitle { font-size: 12px; color: #cbd5e1; margin-bottom: 25px; }
+
+        .menu-btn {
+            width: 100%; padding: 12px; border: none; border-radius: 12px; margin-bottom: 12px;
+            font-size: 16px; font-weight: bold; color: white; cursor: pointer;
+            transition: all 0.2s; background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .menu-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.02); }
+        .btn-highlight { background: linear-gradient(45deg, #00e5ff, #0076a8); border: none; box-shadow: 0 0 15px rgba(0, 229, 255, 0.4); }
+
+        input.room-input {
+            width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px;
+            border: 1px solid #475569; background: rgba(0,0,0,0.5); color: white;
+            text-align: center; font-size: 16px; outline: none;
+        }
+
+        /* --- Game UI --- */
+        #game-ui {
+            display: none; flex-direction: column; align-items: center;
+            width: 100%; max-width: 600px; gap: 10px; padding: 10px; position: relative; z-index: 10;
+        }
+
+        .top-bar { display: flex; justify-content: space-between; width: 100%; align-items: center; }
+        
+        #log-bar {
+            flex-grow: 1; padding: 8px 15px; border-radius: 15px; margin: 0 10px;
+            background: rgba(0,0,0,0.6); color: #00e5ff; font-weight: bold;
+            border: 1px solid rgba(0, 229, 255, 0.3); text-align: center; font-size: 14px;
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.1);
+        }
+
+        .player-row { display: flex; justify-content: space-between; width: 100%; padding: 0 10px; }
+
+        .player-card {
+            width: 110px; background: rgba(255,255,255,0.05); border-radius: 12px;
+            padding: 8px; display: flex; align-items: center; gap: 10px;
+            border: 1px solid rgba(255,255,255,0.1); transition: all 0.3s; opacity: 0.5;
+        }
+        
+        .player-card.active {
+            opacity: 1; transform: scale(1.1); border-color: var(--glow-color);
+            background: rgba(255,255,255,0.15); animation: pulseGlow 2s infinite;
+        }
+
+        .player-name { font-weight: bold; font-size: 14px; text-transform: uppercase; flex: 1; text-shadow: 0 0 5px currentColor; }
+
+        /* --- 3D Dice --- */
+        .dice-scene { width: 35px; height: 35px; perspective: 400px; cursor: pointer; }
+        .dice-cube {
+            width: 100%; height: 100%; position: relative; transform-style: preserve-3d;
+            transform: translateZ(-17.5px) rotateX(-15deg) rotateY(-15deg);
+            transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .dice-face {
+            position: absolute; width: 35px; height: 35px; background: rgba(255,255,255,0.9);
+            border: 2px solid #fff; border-radius: 6px; padding: 3px;
+            display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); gap: 2px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+        }
+        .dot { background: #1e293b; border-radius: 50%; display: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); }
+
+        .front  { transform: rotateY(0deg) translateZ(17.5px); }
+        .back   { transform: rotateY(180deg) translateZ(17.5px); }
+        .right  { transform: rotateY(90deg) translateZ(17.5px); }
+        .left   { transform: rotateY(-90deg) translateZ(17.5px); }
+        .top    { transform: rotateX(90deg) translateZ(17.5px); }
+        .bottom { transform: rotateX(-90deg) translateZ(17.5px); }
+        .dice-scene.disabled { cursor: not-allowed; filter: brightness(0.4); }
+
+        /* --- Ludo Board --- */
+        #board {
+            width: 95vw; height: 95vw; max-width: 500px; max-height: 500px;
+            background: var(--board-bg); border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 15px; position: relative; overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.7), inset 0 0 20px rgba(255,255,255,0.05);
+            backdrop-filter: blur(5px);
+        }
+
+        #grid { display: grid; width: 100%; height: 100%; grid-template-columns: repeat(15, 1fr); grid-template-rows: repeat(15, 1fr); }
+        .cell { border: 1px solid rgba(255,255,255,0.05); position: relative; }
+        .star::after { content: '★'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: rgba(255,255,255,0.3); font-size: clamp(12px, 3vw, 18px); }
+
+        .bg-red { background: rgba(255, 42, 42, 0.3) !important; box-shadow: inset 0 0 8px rgba(255,42,42,0.5); }
+        .bg-blue { background: rgba(0, 229, 255, 0.3) !important; box-shadow: inset 0 0 8px rgba(0,229,255,0.5); }
+        .bg-yellow { background: rgba(255, 215, 0, 0.3) !important; box-shadow: inset 0 0 8px rgba(255,215,0,0.5); }
+        .bg-green { background: rgba(0, 255, 102, 0.3) !important; box-shadow: inset 0 0 8px rgba(0,255,102,0.5); }
+
+        .base { position: absolute; width: 40%; height: 40%; z-index: 1; display: flex; justify-content: center; align-items: center; border-radius: 10px; }
+        .base-red { top:0; left:0; background: linear-gradient(135deg, #ff2a2a, #8a0000); box-shadow: inset 0 0 20px #000; }
+        .base-blue { top:0; right:0; background: linear-gradient(135deg, #00e5ff, #005f73); box-shadow: inset 0 0 20px #000; }
+        .base-yellow { bottom:0; right:0; background: linear-gradient(135deg, #FFD700, #8b7300); box-shadow: inset 0 0 20px #000; }
+        .base-green { bottom:0; left:0; background: linear-gradient(135deg, #00ff66, #006b29); box-shadow: inset 0 0 20px #000; }
+        .base-inner { width: 60%; height: 60%; background: rgba(15, 23, 42, 0.9); border-radius: 15%; box-shadow: inset 0 0 15px rgba(0,0,0,0.8); border: 2px solid rgba(255,255,255,0.1); }
+
+        .center-area {
+            position: absolute; top: 40%; left: 40%; width: 20%; height: 20%; z-index: 2;
+            background: conic-gradient(from 45deg, var(--blue) 0deg 90deg, var(--yellow) 90deg 180deg, var(--green) 180deg 270deg, var(--red) 270deg 360deg);
+            border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 0 15px rgba(255,255,255,0.2);
+        }
+
+        /* --- Tokens --- */
+        .token {
+            position: absolute; width: calc(100% / 15 * 0.75); height: calc(100% / 15 * 0.75);
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.8); z-index: 10;
+            transition: top 0.25s linear, left 0.25s linear, transform 0.2s;
+            transform: translate(-50%, -50%); cursor: pointer;
+            box-shadow: 0 5px 10px rgba(0,0,0,0.6), inset 0 -4px 6px rgba(0,0,0,0.4), inset 0 4px 6px rgba(255,255,255,0.4);
+        }
+        .token-red { background: radial-gradient(circle at 30% 30%, #ff7373, #cc0000); }
+        .token-blue { background: radial-gradient(circle at 30% 30%, #80f2ff, #0096a8); }
+        .token-yellow { background: radial-gradient(circle at 30% 30%, #ffe866, #b39200); }
+        .token-green { background: radial-gradient(circle at 30% 30%, #66ff9e, #00a843); }
+
+        .highlight { animation: tokenPulse 0.8s infinite alternate; z-index: 999 !important; }
+        @keyframes tokenPulse { from { box-shadow: 0 0 10px #fff; transform: translate(-50%, -50%) scale(1); } to { box-shadow: 0 0 25px #fff; transform: translate(-50%, -50%) scale(1.2); } }
+        
+        .pointer {
+            position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+            width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid #fff;
+            animation: pointerBounce 0.5s infinite alternate; filter: drop-shadow(0 0 5px #fff);
+        }
+        @keyframes pointerBounce { from { top: -15px; } to { top: -25px; } }
+
+        /* Disable interaction if not your turn */
+        .turn-red .token:not(.token-red), .turn-blue .token:not(.token-blue),
+        .turn-yellow .token:not(.token-yellow), .turn-green .token:not(.token-green) { pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Menu Screen -->
+    <div id="menu-modal">
+        <div class="menu-box">
+            <h1>Ludo Premium</h1>
+            <div class="menu-subtitle">★ Next-Gen 3D Multiplayer ★</div>
+            
+            <button class="menu-btn btn-highlight" onclick="startOffline()">👥 Play Offline (4P Pass & Play)</button>
+            <hr style="border:0; border-top: 1px solid rgba(255,255,255,0.1); margin: 15px 0;">
+            
+            <button class="menu-btn" style="background: rgba(0, 229, 255, 0.2); color: #00e5ff;" onclick="createOnlineRoom()">🌐 Create Online Room (Host)</button>
+            
+            <div id="join-section" style="margin-top: 10px;">
+                <input type="text" id="room-id-input" class="room-input" placeholder="Enter Room ID to Join">
+                <button class="menu-btn" style="background: rgba(0, 255, 102, 0.2); color: #00ff66;" onclick="joinOnlineRoom()">🔗 Join Room</button>
+            </div>
+            
+            <p id="menu-status" style="color: #FFD700; font-size: 13px; margin-top: 10px; display: none;"></p>
+        </div>
+        <div class="credits-footer">
+            Made by <b>SakiL</b> | Support: <a href="https://t.me/Sharechat_ns_098" target="_blank">Telegram Group</a>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-ui">
+        <div class="player-row">
+            <div id="card-red" class="player-card" style="--glow-color: var(--red-glow);">
+                <div class="player-name" style="color:var(--red)">Red</div>
+                <div class="dice-scene" id="dice-red" onclick="handleDiceClick('red')"></div>
+            </div>
+            <div id="card-blue" class="player-card" style="--glow-color: var(--blue-glow);">
+                <div class="dice-scene" id="dice-blue" onclick="handleDiceClick('blue')"></div>
+                <div class="player-name" style="color:var(--blue); text-align:right">Blue</div>
+            </div>
+        </div>
+
+        <div class="top-bar">
+            <div id="log-bar">Welcome to Premium Ludo!</div>
+        </div>
+
+        <div id="board">
+            <div class="base base-red"><div class="base-inner"></div></div>
+            <div class="base base-blue"><div class="base-inner"></div></div>
+            <div class="base base-yellow"><div class="base-inner"></div></div>
+            <div class="base base-green"><div class="base-inner"></div></div>
+            <div class="center-area"></div>
+            <div id="grid"></div>
+        </div>
+
+        <div class="player-row">
+            <div id="card-green" class="player-card" style="--glow-color: var(--green-glow);">
+                <div class="player-name" style="color:var(--green)">Green</div>
+                <div class="dice-scene" id="dice-green" onclick="handleDiceClick('green')"></div>
+            </div>
+            <div id="card-yellow" class="player-card" style="--glow-color: var(--yellow-glow);">
+                <div class="dice-scene" id="dice-yellow" onclick="handleDiceClick('yellow')"></div>
+                <div class="player-name" style="color:var(--yellow); text-align:right">Yellow</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="credits-footer" id="game-footer" style="display: none;">
+        Made by <b>SakiL</b> | <a href="https://t.me/Sharechat_ns_098" target="_blank">Telegram Support</a> | <span id="room-display">Offline</span>
+    </div>
+
+    <script>
+        // --- Web Audio API Synth Sounds (100% Reliable, no broken links) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playTone(freq, type, duration, vol=0.1) {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        }
+
+        const Sound = {
+            roll: () => {
+                for(let i=0; i<5; i++) setTimeout(() => playTone(600 + Math.random()*400, 'square', 0.05, 0.05), i*60);
+            },
+            move: () => playTone(400, 'sine', 0.1, 0.1),
+            capture: () => {
+                playTone(800, 'sawtooth', 0.3, 0.1); setTimeout(() => playTone(400, 'sawtooth', 0.4, 0.1), 150);
+            },
+            win: () => {[523.25, 659.25, 783.99, 1046.50].forEach((f, i) => setTimeout(() => playTone(f, 'sine', 0.5, 0.15), i*150));
+            }
+        };
+
+        // --- Game Logic Constants ---
+        const COLORS = ['red', 'blue', 'yellow', 'green'];
+        const MAIN_PATH = [
+            [6,1],[6,2],[6,3],[6,4],[6,5], [5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],
+            [1,8],[2,8],[3,8],[4,8],[5,8], [6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],
+            [8,13],[8,12],[8,11],[8,10],[8,9], [9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],
+            [13,6],[12,6],[11,6],[10,6],[9,6], [8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]
+        ];
+        const HOME_PATHS = {
+            red: [[7,1],[7,2],[7,3],[7,4],[7,5]], blue: [[1,7],[2,7],[3,7],[4,7],[5,7]],
+            yellow: [[7,13],[7,12],[7,11],[7,10],[7,9]], green: [[13,7],[12,7],[11,7],[10,7],[9,7]]
+        };
+        const BASE_SPOTS = {
+            red: [[1.5,1.5],[1.5,3.5],[3.5,1.5],[3.5,3.5]], blue: [[1.5,10.5],[1.5,12.5],[3.5,10.5],[3.5,12.5]],
+            yellow: [[10.5,10.5],[10.5,12.5],[12.5,10.5],[12.5,12.5]], green: [[10.5,1.5],[10.5,3.5],[12.5,1.5],[12.5,3.5]]
+        };
+        const START_IDX = { red: 0, blue: 13, yellow: 26, green: 39 };
+        const SAFE_COORDS = new Set(["6,1","8,2","1,8","2,6","8,13","6,12","13,6","12,8"]);
+        const DICE_TRANSFORMS = {
+            1: 'rotateX(0deg) rotateY(0deg)', 2: 'rotateX(-90deg)', 3: 'rotateY(-90deg)',
+            4: 'rotateY(90deg)', 5: 'rotateX(90deg)', 6: 'rotateX(180deg)'
+        };
+
+        let state = {
+            turnIndex: 0, diceValue: 0, diceRolled: false, isAnimating: false, consecutiveSixes: 0,
+            tokens: { red: [-1,-1,-1,-1], blue:[-1,-1,-1,-1], yellow: [-1,-1,-1,-1], green: [-1,-1,-1,-1] }
+        };
+
+        // --- Multiplayer Variables ---
+        let peer = null; let conn = null; let isOnline = false; let myPlayerColor = null;
+
+        function setStatus(msg) {
+            const el = document.getElementById('menu-status'); el.style.display = 'block'; el.innerText = msg;
+        }
+
+        // --- Initialization ---
+        function initBoard() {
+            const grid = document.getElementById('grid');
+            for(let r=0; r<15; r++) {
+                for(let c=0; c<15; c++) {
+                    const cell = document.createElement('div');
+                    const isBase = (r<6 && c<6) || (r<6 && c>8) || (r>8 && c<6) || (r>8 && c>8);
+                    const isCenter = (r>=6 && r<=8 && c>=6 && c<=8);
+                    
+                    if(!isBase && !isCenter) {
+                        cell.className = 'cell';
+                        if(SAFE_COORDS.has(`${r},${c}`)) cell.classList.add('star');
+                        if(r===6 && c===1 || r===7 && c>=1 && c<=5) cell.classList.add('bg-red');
+                        if(r===1 && c===8 || c===7 && r>=1 && r<=5) cell.classList.add('bg-blue');
+                        if(r===8 && c===13 || r===7 && c>=9 && c<=13) cell.classList.add('bg-yellow');
+                        if(r===13 && c===6 || c===7 && r>=9 && r<=13) cell.classList.add('bg-green');
+                    }
+                    grid.appendChild(cell);
+                }
+            }
+
+            COLORS.forEach(color => {
+                document.getElementById(`dice-${color}`).innerHTML = `
+                    <div class="dice-cube" id="cube-${color}">
+                        <div class="dice-face front">${dotDivs(5)}</div>
+                        <div class="dice-face back">${dotDivs(1,3,4,6,7,9)}</div>
+                        <div class="dice-face right">${dotDivs(1,5,9)}</div>
+                        <div class="dice-face left">${dotDivs(1,3,7,9)}</div>
+                        <div class="dice-face top">${dotDivs(1,9)}</div>
+                        <div class="dice-face bottom">${dotDivs(1,3,5,7,9)}</div>
+                    </div>`;
+                for(let i=0; i<4; i++) {
+                    const t = document.createElement('div');
+                    t.id = `token-${color}-${i}`; t.className = `token token-${color}`;
+                    t.onclick = () => handleTokenClick(color, i);
+                    document.getElementById('board').appendChild(t);
+                }
+            });
+        }
+
+        function dotDivs(...active) {
+            let html = '';
+            for(let i=1; i<=9; i++) {
+                html += `<div class="dot" style="${active.includes(i) ? 'display:block' : ''}"></div>`;
+            }
+            return html;
+        }
+
+        function startUI() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            document.getElementById('menu-modal').style.display = 'none';
+            document.getElementById('game-ui').style.display = 'flex';
+            document.getElementById('game-footer').style.display = 'block';
+            initBoard(); updateUI();
+        }
+
+        // --- Multiplayer Functions ---
+        function startOffline() { isOnline = false; startUI(); }
+
+        function createOnlineRoom() {
+            setStatus("Creating secure room...");
+            peer = new Peer();
+            peer.on('open', id => {
+                isOnline = true; myPlayerColor = 'red'; // Host plays as Red/Yellow
+                document.getElementById('room-display').innerText = "Room ID: " + id;
+                startUI(); log(`Room created! Share ID: ${id}`);
+            });
+            peer.on('connection', connection => {
+                conn = connection; setupConnection();
+                log("Opponent joined the game!");
+                conn.send({ type: 'sync', state: state }); // Sync initial state
+            });
+        }
+
+        function joinOnlineRoom() {
+            const id = document.getElementById('room-id-input').value.trim();
+            if(!id) return setStatus("Please enter a Room ID!");
+            setStatus("Connecting to room...");
+            peer = new Peer();
+            peer.on('open', () => {
+                conn = peer.connect(id);
+                conn.on('open', () => {
+                    isOnline = true; myPlayerColor = 'blue'; // Guest plays as Blue/Green
+                    document.getElementById('room-display').innerText = "Connected to: " + id;
+                    setupConnection(); startUI(); log("Connected! Waiting for host.");
+                });
+                conn.on('error', () => setStatus("Connection failed. Check ID."));
+            });
+        }
+
+        function setupConnection() {
+            conn.on('data', data => {
+                if(data.type === 'sync') { state = data.state; renderTokens(); updateUI(); }
+                if(data.type === 'roll') { executeRoll(data.color, data.value); }
+                if(data.type === 'move') { executeMove(data.color, data.index); }
+            });
+        }
+
+        function sendNetworkData(data) {
+            if(isOnline && conn && conn.open) conn.send(data);
+        }
+
+        // --- Core Game Functions ---
+        function updateUI() {
+            const curColor = COLORS[state.turnIndex];
+            COLORS.forEach(c => {
+                document.getElementById(`card-${c}`).classList.toggle('active', c === curColor);
+                document.getElementById(`dice-${c}`).classList.toggle('disabled', c !== curColor || state.diceRolled || state.isAnimating);
+            });
+            document.getElementById('board').className = `turn-${curColor}`;
+            renderTokens();
+            
+            let turnMsg = `${curColor.toUpperCase()}'s turn.`;
+            if(isOnline) {
+                const isMyTurn = (myPlayerColor === 'red' && (curColor==='red'||curColor==='yellow')) || 
+                                 (myPlayerColor === 'blue' && (curColor==='blue'||curColor==='green'));
+                turnMsg = isMyTurn ? "Your turn! (" + curColor.toUpperCase() + ")" : "Waiting for opponent...";
+                document.getElementById('board').style.pointerEvents = isMyTurn ? "auto" : "none";
+                COLORS.forEach(c => { document.getElementById(`dice-${c}`).style.pointerEvents = isMyTurn ? "auto" : "none"; });
+            }
+            if(!state.diceRolled) log(turnMsg);
+        }
+
+        function getCoords(color, pos) {
+            if(pos === -1) return BASE_SPOTS[color][state.tokens[color].filter((p, i) => state.tokens[color].indexOf(p) < i).length || 0];
+            if(pos < 51) return MAIN_PATH[(START_IDX[color] + pos) % 52];
+            if(pos < 56) return HOME_PATHS[color][pos - 51];
+            return [7, 7];
+        }
+
+        function renderTokens() {
+            const cellMap = {};
+            COLORS.forEach(color => {
+                state.tokens[color].forEach((pos, i) => {
+                    const coords = getCoords(color, pos); const key = coords.join(',');
+                    if(!cellMap[key]) cellMap[key] = []; cellMap[key].push({ color, i });
+                });
+            });
+
+            const offsetMap =[{x:0,y:0},{x:-6,y:-6},{x:6,y:6},{x:-6,y:6},{x:6,y:-6}];
+            for(const key in cellMap) {
+                const items = cellMap[key]; const isSafe = SAFE_COORDS.has(key) || key === "7,7";
+                items.forEach((item, idx) => {
+                    const el = document.getElementById(`token-${item.color}-${item.i}`);
+                    const[r, c] = key.split(',').map(Number);
+                    el.style.top = `${(r + 0.5) * (100/15)}%`; el.style.left = `${(c + 0.5) * (100/15)}%`;
+                    
+                    if(!isSafe && items.length > 1) {
+                        const off = offsetMap[idx % 5] || {x:0,y:0};
+                        el.style.transform = `translate(calc(-50% + ${off.x}px), calc(-50% + ${off.y}px)) scale(0.85)`;
+                    } else {
+                        el.style.transform = `translate(-50%, -50%) scale(1)`;
+                    }
+                });
+            }
+        }
+
+        async function rollDice() {
+            if(state.diceRolled || state.isAnimating) return;
+            const color = COLORS[state.turnIndex];
+            
+            // Check Multiplayer permission
+            if(isOnline) {
+                const canRoll = (myPlayerColor === 'red' && (color==='red'||color==='yellow')) || 
+                                (myPlayerColor === 'blue' && (color==='blue'||color==='green'));
+                if(!canRoll) return;
+            }
+
+            const val = Math.floor(Math.random() * 6) + 1;
+            if(isOnline) sendNetworkData({ type: 'roll', color: color, value: val });
+            executeRoll(color, val);
+        }
+
+        async function executeRoll(color, val) {
+            state.diceRolled = true; state.diceValue = val;
+            const cube = document.getElementById(`cube-${color}`);
+            
+            Sound.roll();
+            cube.style.animation = 'spin3D 0.5s linear';
+            await new Promise(r => setTimeout(r, 500));
+            
+            cube.style.animation = 'none';
+            cube.style.transform = `translateZ(-17.5px) ${DICE_TRANSFORMS[val]}`;
+            log(`${color.toUpperCase()} rolled a ${val}`);
+
+            if(val === 6) state.consecutiveSixes++; else state.consecutiveSixes = 0;
+            if(state.consecutiveSixes === 3) {
+                log("Three 6s! Turn forfeited."); setTimeout(nextTurn, 1000); return;
+            }
+
+            const validIndices = getValidMoves(color, val);
+            if(validIndices.length === 0) {
+                setTimeout(nextTurn, 1000);
+            } else {
+                validIndices.forEach(idx => {
+                    const el = document.getElementById(`token-${color}-${idx}`);
+                    el.classList.add('highlight'); el.innerHTML = '<div class="pointer"></div>';
+                });
+            }
+        }
+
+        function getValidMoves(color, roll) {
+            const moves = [];
+            state.tokens[color].forEach((pos, i) => {
+                if(pos === -1 && roll !== 6) return;
+                if(pos + roll > 56) return;
+                moves.push(i); // Simplified without blockade for better UX in mobile
+            });
+            return moves;
+        }
+
+        async function handleTokenClick(color, index) {
+            if(!state.diceRolled || state.isAnimating || color !== COLORS[state.turnIndex]) return;
+            
+            if(isOnline) {
+                const canMove = (myPlayerColor === 'red' && (color==='red'||color==='yellow')) || 
+                                (myPlayerColor === 'blue' && (color==='blue'||color==='green'));
+                if(!canMove) return;
+            }
+
+            const valid = getValidMoves(color, state.diceValue);
+            if(!valid.includes(index)) return;
+
+            if(isOnline) sendNetworkData({ type: 'move', color: color, index: index });
+            executeMove(color, index);
+        }
+
+        async function executeMove(color, index) {
+            document.querySelectorAll('.token').forEach(t => { t.classList.remove('highlight'); t.innerHTML = ''; });
+            state.isAnimating = true;
+
+            if(state.tokens[color][index] === -1) {
+                state.tokens[color][index] = 0; Sound.move(); renderTokens();
+                await new Promise(r => setTimeout(r, 250));
+            } else {
+                for(let i=0; i<state.diceValue; i++) {
+                    state.tokens[color][index]++; Sound.move(); renderTokens();
+                    await new Promise(r => setTimeout(r, 200));
+                }
+            }
+
+            checkCapture(color, index);
+            
+            if(state.tokens[color].every(p => p === 56)) {
+                Sound.win(); log(`🏆 ${color.toUpperCase()} WINS!`);
+                alert(`GAME OVER! ${color.toUpperCase()} WINS!`); return;
+            }
+
+            state.isAnimating = false;
+            if(state.diceValue === 6 || state.lastActionWasCapture || state.tokens[color][index] === 56) {
+                state.diceRolled = false; state.lastActionWasCapture = false;
+                log("Bonus turn!"); updateUI();
+            } else {
+                nextTurn();
+            }
+        }
+
+        function checkCapture(color, index) {
+            const pos = state.tokens[color][index];
+            if(pos < 0 || pos >= 51) return;
+            const absIdx = (START_IDX[color] + pos) % 52;
+            const coords = MAIN_PATH[absIdx].join(',');
+            if(SAFE_COORDS.has(coords)) return;
+
+            COLORS.forEach(opp => {
+                if(opp === color) return;
+                state.tokens[opp].forEach((oPos, oi) => {
+                    if(oPos >= 0 && oPos < 51 && (START_IDX[opp] + oPos) % 52 === absIdx) {
+                        state.tokens[opp][oi] = -1; state.lastActionWasCapture = true;
+                        Sound.capture(); log(`💥 Captured ${opp}!`); renderTokens();
+                    }
+                });
+            });
+        }
+
+        function nextTurn() {
+            state.turnIndex = (state.turnIndex + 1) % 4;
+            state.diceRolled = false; state.diceValue = 0; state.consecutiveSixes = 0;
+            updateUI();
+        }
+
+        function log(msg) { document.getElementById('log-bar').innerText = msg; }
+        function handleDiceClick(color) { if(color === COLORS[state.turnIndex]) rollDice(); }
+    </script>
+</body>
+</html>
